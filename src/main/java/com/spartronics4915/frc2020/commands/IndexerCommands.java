@@ -3,9 +3,9 @@ package com.spartronics4915.frc2020.commands;
 import com.spartronics4915.frc2020.subsystems.Indexer;
 
 import edu.wpi.first.wpilibj2.command.CommandBase;
-import edu.wpi.first.wpilibj2.command.FunctionalCommand;
 import edu.wpi.first.wpilibj2.command.InstantCommand;
 import edu.wpi.first.wpilibj2.command.ParallelCommandGroup;
+import edu.wpi.first.wpilibj2.command.RunCommand;
 import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
 import edu.wpi.first.wpilibj2.command.WaitCommand;
 import edu.wpi.first.wpilibj2.command.WaitUntilCommand;
@@ -13,14 +13,12 @@ import edu.wpi.first.wpilibj2.command.WaitUntilCommand;
 public class IndexerCommands
 {
     private Indexer mIndexer;
+
     public IndexerCommands(Indexer indexer)
     {
         mIndexer = indexer;
-    }
-
-    public Indexer getIndexer()
-    {
-        return mIndexer;
+        // TODO: setDefaultCommand
+        // mIndexer.setDefaultCommand(mIndexerCommands.new ZeroAndStopGroup(mIndexer));
     }
 
     /**
@@ -28,16 +26,9 @@ public class IndexerCommands
      */
     public class WaitForBallHeld extends WaitUntilCommand
     {
-        public WaitForBallHeld(Indexer indexer)
+        public WaitForBallHeld()
         {
-            super(indexer::getIntakeBallLoaded);
-        }
-
-        @Override
-        public void initialize()
-        {
-            super.initialize();
-            System.out.println("here3");
+            super(mIndexer::getIntakeBallLoaded);
         }
     }
 
@@ -47,11 +38,11 @@ public class IndexerCommands
      */
     public class LoadBallToSlotGroup extends SequentialCommandGroup
     {
-        public LoadBallToSlotGroup(Indexer indexer, int spinCount)
+        public LoadBallToSlotGroup(int spinCount)
         {
             addCommands(
-                new AlignIndexer(indexer),
-                new LoadBallToSlot(indexer, spinCount)
+                new AlignIndexer(),
+                new LoadBallToSlot(spinCount)
             );
         }
     }
@@ -61,12 +52,10 @@ public class IndexerCommands
      */
     private class LoadBallToSlot extends CommandBase
     {
-        private Indexer mIndexer;
         private double mSpinCount;
 
-        public LoadBallToSlot(Indexer indexer, double spinCount)
+        public LoadBallToSlot(double spinCount)
         {
-            mIndexer = indexer;
             mSpinCount = spinCount;
             addRequirements(mIndexer);
         }
@@ -74,14 +63,13 @@ public class IndexerCommands
         @Override
         public void initialize()
         {
-            System.out.println("here4");
             mIndexer.rotateN(mSpinCount);
         }
 
         @Override
         public void execute()
         {
-            if (!mIndexer.getSlotBallLoaded() && mIndexer.getIntakeBallLoaded()
+            if (!mIndexer.getSlotBallLoaded()
                 && mIndexer.areFinsAligned())
                 mIndexer.transfer();
             else
@@ -107,18 +95,12 @@ public class IndexerCommands
      */
     public class ZeroSpinnerCommand extends CommandBase
     {
-        private Indexer mIndexer;
-
         // You should only use one subsystem per command. If multiple are needed, use a
         // CommandGroup.
-        public ZeroSpinnerCommand(Indexer indexer, boolean unzero)
+        public ZeroSpinnerCommand(boolean unzero)
         {
-            mIndexer = indexer;
             if (unzero)
-            {
                 mIndexer.unzero();
-            }
-
             addRequirements(mIndexer);
         }
 
@@ -146,36 +128,11 @@ public class IndexerCommands
         }
     }
 
-    public class StopCommand extends CommandBase
+    public class Stop extends RunCommand
     {
-        private Indexer mIndexer;
-
-        public StopCommand(Indexer indexer)
+        public Stop()
         {
-            mIndexer = indexer;
-        }
-
-        @Override
-        public void execute()
-        {
-            mIndexer.stop();
-        }
-
-        @Override
-        public boolean isFinished()
-        {
-            return false;
-        }
-    }
-
-    public class ZeroAndStopGroup extends SequentialCommandGroup
-    {
-        public ZeroAndStopGroup(Indexer indexer)
-        {
-            addCommands(
-                new ZeroSpinnerCommand(indexer, false),
-                new StopCommand(indexer)
-            );
+            super(mIndexer::stop, mIndexer);
         }
     }
 
@@ -186,9 +143,9 @@ public class IndexerCommands
      */
     public class StartKicker extends InstantCommand
     {
-        public StartKicker(Indexer indexer)
+        public StartKicker()
         {
-            super(indexer::launch, indexer);
+            super(mIndexer::launch, mIndexer);
         }
     }
 
@@ -199,16 +156,9 @@ public class IndexerCommands
      */
     public class EndKicker extends InstantCommand
     {
-        public EndKicker(Indexer indexer)
+        public EndKicker()
         {
-            super(indexer::endLaunch, indexer);
-        }
-
-        @Override
-        public void initialize()
-        {
-            super.initialize();
-            System.out.println("here2");
+            super(mIndexer::endLaunch, mIndexer);
         }
     }
 
@@ -219,9 +169,9 @@ public class IndexerCommands
      */
     public class StartTransfer extends InstantCommand
     {
-        public StartTransfer(Indexer indexer)
+        public StartTransfer()
         {
-            super(indexer::transfer, indexer);
+            super(mIndexer::transfer, mIndexer);
         }
     }
 
@@ -232,34 +182,48 @@ public class IndexerCommands
      */
     public class EndTransfer extends InstantCommand
     {
-        public EndTransfer(Indexer indexer)
+        public EndTransfer()
         {
-            super(indexer::endTransfer, indexer);
+            super(mIndexer::endTransfer, mIndexer);
         }
     }
 
     /**
      * Spins the spindexer an arbitrary number of quarter-rotations.
-     * @param N the number of quarter-rotations to spin (accepts doubles and negatives)
+     * @param n the number of quarter-rotations to spin (accepts doubles and negatives)
      */
-    public class SpinIndexer extends FunctionalCommand
+    public class SpinIndexer extends CommandBase
     {
-        public SpinIndexer(Indexer indexer, double N)
+        private double quarterRotations;
+
+        public SpinIndexer(double n)
         {
-            super(
-                () -> indexer.rotateN(N),
-                indexer::goToPosition,
-                (b) -> indexer.stopSpinner(),
-                () -> indexer.isAtPosition(),
-                indexer
-            );
+            quarterRotations = n;
+            addRequirements(mIndexer);
         }
 
         @Override
         public void initialize()
         {
-            super.initialize();
-            System.out.println("here5");
+            mIndexer.rotateN(quarterRotations);
+        }
+
+        @Override
+        public void execute()
+        {
+            mIndexer.goToPosition();
+        }
+
+        @Override
+        public boolean isFinished()
+        {
+            return mIndexer.isAtPosition();
+        }
+
+        @Override
+        public void end(boolean interrupted)
+        {
+            mIndexer.stopSpinner();
         }
     }
 
@@ -268,24 +232,29 @@ public class IndexerCommands
      * <p>
      * Through use of Math.ceil, seems to only move clockwise.
      */
-    public class AlignIndexer extends FunctionalCommand
+    public class AlignIndexer extends CommandBase
     {
-        public AlignIndexer(Indexer indexer)
+        public AlignIndexer()
         {
-            super( 
-                indexer::toNearestQuarterRotation, 
-                indexer::goToPosition,
-                (Boolean b) -> indexer.stopSpinner(),
-                () -> indexer.isAtPosition(),
-                indexer
-            );
+            addRequirements(mIndexer);
         }
 
         @Override
-        public void initialize()
+        public void execute()
         {
-            super.initialize();
-            System.out.println("here");
+            mIndexer.goToPosition();
+        }
+
+        @Override
+        public boolean isFinished()
+        {
+            return mIndexer.isAtPosition();
+        }
+
+        @Override
+        public void end(boolean interrupted)
+        {
+            mIndexer.stopSpinner();
         }
     }
 
@@ -297,22 +266,17 @@ public class IndexerCommands
      */
     public class LoadFromIntake extends SequentialCommandGroup
     {
-        private Indexer mIndexer;
-
-        public LoadFromIntake(Indexer indexer)
+        public LoadFromIntake()
         {
-            mIndexer = indexer;
             addCommands(
-                new EndKicker(mIndexer), // for safety
-                // new AlignIndexer(mIndexer),
-                new WaitForBallHeld(mIndexer),
-                new LoadBallToSlot(mIndexer, 0),
-                new ParallelCommandGroup(
-                    new WaitCommand(0.4),
-                    new StartTransfer(mIndexer)
-                ),
-                new SpinIndexer(mIndexer, 1),
-                new EndTransfer(mIndexer),
+                new EndKicker(), // for safety
+                new AlignIndexer(),
+                new WaitForBallHeld(),
+                new LoadBallToSlot(0),
+                new StartTransfer(),
+                    new WaitCommand(0.05),
+                    new SpinIndexer(1),
+                new EndTransfer(),
                 new InstantCommand(() -> mIndexer.addBalls(1), mIndexer)
             );
         }
@@ -324,6 +288,35 @@ public class IndexerCommands
         }
     }
 
+    public class OptimizedLoadFromIntake extends SequentialCommandGroup
+    {
+        public OptimizedLoadFromIntake()
+        {
+            if (mIndexer.getSlotBallLoaded())
+            {
+                addCommands(
+                    new EndKicker(), // for safety
+                    // new AlignIndexer(),
+                    new WaitForBallHeld(),
+                    new LoadBallToSlot(0),
+                    new StartTransfer(),
+                        new WaitCommand(0.3),
+                    new EndTransfer(),
+                    new SpinIndexer(1),
+                    new InstantCommand(() -> mIndexer.addBalls(1), mIndexer)
+                );
+            }
+            else
+            {
+                System.out.println("Leaving the ball in the outer slot... We have five balls held.");
+                addCommands(
+                    new EndKicker(),
+                    new WaitForBallHeld()
+                );
+            }
+        }
+    }
+
     /**
      * Queues the {@link LoadFromIntake} command five times.
      * <p>
@@ -331,19 +324,16 @@ public class IndexerCommands
      */
     public class BulkHarvest extends SequentialCommandGroup
     {
-        private Indexer mIndexer;
-
-        public BulkHarvest(Indexer indexer)
+        public BulkHarvest()
         {
-            mIndexer = indexer;
             for (int i = 0; i < 5; i++)
-                addCommands(new LoadFromIntake(mIndexer));
+                addCommands(new LoadFromIntake());
         }
 
         @Override
         public boolean isFinished()
         {
-            return (mIndexer.getIntakeBallLoaded() && mIndexer.getSlotBallLoaded());
+            return (mIndexer.getIntakeBallLoaded() && mIndexer.getSlotBallLoaded()) || super.isFinished();
         }
     }
     /**
@@ -353,31 +343,27 @@ public class IndexerCommands
      */
     public class LoadToLauncher extends SequentialCommandGroup
     {
-        private Indexer mIndexer;
-        public LoadToLauncher(Indexer indexer, int ballsToShoot)
+        public LoadToLauncher(int ballsToShoot)
         {
-            mIndexer = indexer;
-            double spinDistance = (mIndexer.getSlotBallLoaded() && mIndexer.getIntakeBallLoaded()) ? 0.5 : 0;
-
+            double spinDistance = 0.25; //(mIndexer.getSlotBallLoaded() && mIndexer.getIntakeBallLoaded()) ? 0.25 : 0;
             addCommands(
                 // new AlignIndexer(mIndexer),
-                new SpinIndexer(mIndexer, -spinDistance),
-                new StartKicker(mIndexer),
-                new LoadBallToSlot(mIndexer, 1 + spinDistance),
-                new ParallelCommandGroup(
-                    new WaitCommand(0.4),
-                    new StartTransfer(mIndexer)
-                ),
-                new SpinIndexer(mIndexer, ballsToShoot - 1),
-                new EndKicker(mIndexer),
-                new EndTransfer(mIndexer),
+                new SpinIndexer(-spinDistance),
+                new StartKicker(),
+                    new WaitCommand(0.1),
+                    ballsToShoot >= 5 ? new LoadBallToSlot(1 + spinDistance) : new InstantCommand(),
+                    ballsToShoot >= 5 ? new ParallelCommandGroup(new WaitCommand(0.25), new StartTransfer()) : new InstantCommand(),
+                    new WaitCommand(0.25),
+                    new SpinIndexer(ballsToShoot >= 5 ? ballsToShoot - 1 : ballsToShoot),
+                    new EndTransfer(),
+                new EndKicker(),
                 new InstantCommand(() -> mIndexer.addBalls(-ballsToShoot), mIndexer)
             );
         }
 
-        public LoadToLauncher(Indexer indexer)
+        public LoadToLauncher()
         {
-            this(indexer, 1);
+            this(4);
         }
     }
 }

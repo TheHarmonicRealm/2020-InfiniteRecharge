@@ -37,7 +37,7 @@ public class TestT265Camera
             cam = new T265Camera(new Pose2d(), 0);
 
             // Just make sure this doesn't throw
-            cam.sendOdometry(new Twist2d(0, 0, new Rotation2d()));
+            cam.sendOdometry(0, 0);
 
             cam.start((CameraUpdate update) -> {
                 synchronized (mLock)

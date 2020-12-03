@@ -1,9 +1,7 @@
 package com.spartronics4915.frc2020.subsystems;
 
 import com.spartronics4915.frc2020.Constants;
-import com.spartronics4915.frc2020.commands.LauncherCommands;
 import com.spartronics4915.lib.hardware.motors.SensorModel;
-import com.spartronics4915.lib.hardware.motors.SpartronicsAnalogEncoder;
 import com.spartronics4915.lib.hardware.motors.SpartronicsEncoder;
 import com.spartronics4915.lib.hardware.motors.SpartronicsMax;
 import com.spartronics4915.lib.hardware.motors.SpartronicsMotor;
@@ -12,13 +10,10 @@ import com.spartronics4915.lib.hardware.motors.SpartronicsSimulatedMotor;
 import com.spartronics4915.lib.math.Util;
 import com.spartronics4915.lib.math.twodim.geometry.Rotation2d;
 import com.spartronics4915.lib.subsystems.SpartronicsSubsystem;
-import com.spartronics4915.lib.subsystems.estimator.RobotStateEstimator;
 import com.spartronics4915.lib.util.Interpolable;
 import com.spartronics4915.lib.util.InterpolatingDouble;
 import com.spartronics4915.lib.util.InterpolatingTreeMap;
 
-import edu.wpi.first.wpilibj.AnalogInput;
-import edu.wpi.first.wpilibj.RobotState;
 import edu.wpi.first.wpilibj.Servo;
 import edu.wpi.first.wpilibj.controller.PIDController;
 import edu.wpi.first.wpilibj.controller.SimpleMotorFeedforward;
@@ -65,20 +60,16 @@ public class Launcher extends SpartronicsSubsystem
     public Launcher()
     {
         // ONE NEO for flywheel
+        boolean initSuccess = true;
         mFlywheelMasterMotor = SpartronicsMax.makeMotor(Constants.Launcher.kFlywheelMasterId);
         if (mFlywheelMasterMotor.hadStartupError())
         {
             logError("Flywheel Motor Startup Failed");
             mFlywheelMasterMotor = new SpartronicsSimulatedMotor(
                 Constants.Launcher.kFlywheelMasterId);
-            logInitialized(false);
+            initSuccess = false;
         }
-        else
-        {
-            logInitialized(true);
-        }
-        mFlywheelMasterMotor.setVelocityGains(Constants.Launcher.kP, 0, 0, 0); // ref value is
-                                                                               // 0.00036
+        mFlywheelMasterMotor.setVelocityGains(Constants.Launcher.kP, 0, 0, 0); // ref value is 0.00036
         mFeedforwardCalculator = new SimpleMotorFeedforward(Constants.Launcher.kS,
             Constants.Launcher.kV, Constants.Launcher.kA);
         mFlywheelMasterMotor.setOutputInverted(false);
@@ -88,23 +79,20 @@ public class Launcher extends SpartronicsSubsystem
         mTargetTurretDirection = new Rotation2d();
 
         // One BAG motor for turret
+        // XXX: explain all these interesting constants.
         mTurretMotor = SpartronicsSRX.makeMotor(Constants.Launcher.kTurretId,
-            SensorModel.fromMultiplier(Math.toDegrees(1.0 / 1024.0 / 11.75 / 20.0) * 2.0));// UNITS
-                                                                                           // ARE
-                                                                                           // GOOD
+            SensorModel.fromMultiplier(Math.toDegrees(1.0 / 1024.0 / 11.75 / 20.0) * 2.0));
 
         if (mTurretMotor.hadStartupError())
         {
             logError("Turret Motor Startup Failed");
             mTurretMotor = new SpartronicsSimulatedMotor(Constants.Launcher.kTurretId);
-            logInitialized(false);
+            initSuccess = false;
         }
-        else
-        {
-            logInitialized(true);
-        }
+
         mTurretMotor.setSoftLimits(45, -45);
         mTurretEncoder = mTurretMotor.getEncoder();
+        // mTurretEncoder.setPosition(0);
         mTurretPIDController = new PIDController(Constants.Launcher.kTurretP, 0,
             Constants.Launcher.kTurretD);
         mTurretPIDController.setTolerance(1.0);
@@ -123,8 +111,13 @@ public class Launcher extends SpartronicsSubsystem
             setUpLookupTable(Constants.Launcher.kLookupTableSize, Constants.Launcher.kDistanceTable,
                 Constants.Launcher.kAngleTable, Constants.Launcher.kRPSTable);
         }
+        zeroTurret();
         mTurretZeroed = false;
         reset();
+        mTurretMotor.setNeutral();
+        mFlywheelMasterMotor.setNeutral();
+
+        logInitialized(initSuccess);
     }
 
     /**
@@ -150,21 +143,26 @@ public class Launcher extends SpartronicsSubsystem
     public void adjustHood(Rotation2d angle)
     {
         mTargetAngle = Rotation2d
-            .fromDegrees(Math.min(angle.getDegrees(), Constants.Launcher.kMaxAngle.getDegrees()));
+            .fromDegrees(Math.min(angle.getDegrees(), Constants.Launcher.kHoodMaxAngle.getDegrees()));
         mAngleAdjusterMasterServo.setAngle(mTargetAngle.getDegrees());
-        mAngleAdjusterFollowerServo.setAngle(180 - mTargetAngle.getDegrees());
+        mAngleAdjusterFollowerServo.setAngle(172.8 - mTargetAngle.getDegrees());
     }
 
     /**
      * Rotates turret to a specific angle relative to the home position
-     * @param absoluteAngle Angle in degrees you want to turn the turret relative to the home position
+     * @param absoluteAngle Rotation2d expressing directed turret direction
      */
     public void turnTurret(Rotation2d absoluteAngle)
     {
         mTargetTurretDirection = absoluteAngle;
         double output = mTurretPIDController.calculate(mTurretEncoder.getPosition(),
-            Util.limit(absoluteAngle.getDegrees(), Constants.Launcher.kMaxAngle.getDegrees()));
-        mTurretMotor.setDutyCycle(output);
+            Util.limit(absoluteAngle.getDegrees(), Constants.Launcher.kTurretMaxAngle.getDegrees()));
+        mTurretMotor.setPercentOutput(output);
+    }
+
+    public void turnTurret(double degrees)
+    {
+        this.turnTurret(Rotation2d.fromDegrees(degrees));
     }
 
     /**
@@ -222,7 +220,7 @@ public class Launcher extends SpartronicsSubsystem
      */
     public Rotation2d calcPitch(double distance)
     {
-        return table.getInterpolated(new InterpolatingDouble(distance/100.0)).hoodAngle;
+        return table.getInterpolated(new InterpolatingDouble(distance)).hoodAngle;
     }
 
     /**
@@ -232,7 +230,7 @@ public class Launcher extends SpartronicsSubsystem
      */
     public double calcRPS(double distance)
     {
-        return table.getInterpolated(new InterpolatingDouble(distance/100.0)).flywheelSpeedRPS.value;
+        return table.getInterpolated(new InterpolatingDouble(distance)).flywheelSpeedRPS.value;
     }
 
     /**
@@ -241,8 +239,7 @@ public class Launcher extends SpartronicsSubsystem
      */
     public boolean inRange(Double distance)
     {
-        // TODO figure out actual bounds of the range and make a check for the turret
-        // rotation
+        // TODO figure out actual bounds of the range and make a check for the turret rotation
         boolean inRange = (distance < Units.feetToMeters(Constants.Launcher.MaxShootingDistance)
             || distance > Units.feetToMeters(Constants.Launcher.MinShootingDistance));
         return inRange;
@@ -281,16 +278,18 @@ public class Launcher extends SpartronicsSubsystem
 
     public void zeroTurret()
     {
-        /*if (mTurretMotor.getOutputCurrent() > Constants.Launcher.kTurretStallAmps)
+        /*
+        if (mTurretMotor.getOutputCurrent() > Constants.Launcher.kTurretStallAmps)
         {
             mTurretEncoder.setPosition(45.0);
-            mTurretMotor.setDutyCycle(0.0);
+            mTurretMotor.setPercentOutput(0.0);
             zeroed = true;
         }
         else if (!zeroed)
         {
-            mTurretMotor.setDutyCycle(0.1);
-        }*/
+            mTurretMotor.setPercentOutput(0.1);
+        }
+        */
         mTurretEncoder.setPosition(0.0);
     }
 
@@ -301,16 +300,16 @@ public class Launcher extends SpartronicsSubsystem
 
     public void stopTurret()
     {
-        mTurretMotor.setDutyCycle(0);
+        mTurretMotor.setPercentOutput(0);
     }
 
     @Override
     public void periodic()
     {
-        dashboardPutNumber("CurrentTurretAimAngle", getTurretDirection().getDegrees());
-
-        dashboardPutNumber("CurrentHoodAngle", getCurrentPitch().getDegrees());
-
-        dashboardPutNumber("CurrentFlywheelRPS", getCurrentRPS());
+        // nb: don't change these nettable names without changing Dashboard.
+        dashboardPutNumber("turretAngle", getTurretDirection().getDegrees());
+        dashboardPutNumber("targetTurretAngle", mTargetAngle.getDegrees());
+        dashboardPutNumber("hoodAngle", getCurrentPitch().getDegrees());
+        dashboardPutNumber("flywheelRPS", getCurrentRPS());
     }
 }
